@@ -1,0 +1,90 @@
+{%- comment %}
+
+    It is mandatory to use FQDN for peer identity and self identity for Tencent cloud,
+    so we must config "Hostname" as the identity method on Cisco ASA.
+
+    Hostname method uses the fully qualified domain name of the hosts exchanging 
+    ISAKMP identity information (default). 
+    This name comprises the hostname and the domain name. Thus, the domain-name 
+    setting is necessary.
+
+{%- endcomment %}
+hostname {{ hostname }}         ## Example: ciscoasa
+domain-name {{ domain_name }}   ## Example: cisco.com
+!
+interface TenGigabitEthernet0/0
+    nameif outside
+    security-level 0
+    ip address {{ wan_addr }} {{ wan_mask }} 
+!
+interface TenGigabitEthernet0/1
+    nameif inside
+    security-level 100
+    ip address {{ lan_addr }} {{ lan_mask }}
+!
+access-list INTERESTING extended permit ip {{ local_network }} {{ local_netmask }} {{ remote_network }} {{ remote_netmask }} 
+!
+route outside {{ tencent_vpngw_ip }} 255.255.255.255 {{ wan_nexthop_ip }} 1
+route outside {{ remote_network }} {{ remote_netmask }} {{ tencent_vpngw_ip }} 1
+!
+crypto ipsec ikev2 ipsec-proposal {{ proposal }}
+    protocol esp encryption aes-256
+    protocol esp integrity sha-1
+crypto ipsec security-association pmtu-aging infinite
+!
+{%- comment %}
+
+    Important!
+
+    IPSec fragmentation must be set to after-encryption instead of before-encryption by default.
+    Otherwise Tencent VPN gateway will be failed to parse hash payload.
+
+{%- endcomment %}
+crypto ipsec fragmentation after-encryption management
+crypto ipsec fragmentation after-encryption outside
+crypto ipsec fragmentation after-encryption inside
+crypto map CMAP 1 match address INTERESTING
+crypto map CMAP 1 set peer {{ tencent_vpngw_ip }} 
+crypto map CMAP 1 set ikev2 ipsec-proposal {{ proposal }}
+crypto map CMAP 1 set security-association lifetime seconds 3600
+crypto map CMAP 1 set security-association lifetime kilobytes 1843200
+crypto map CMAP interface outside
+!
+crypto isakmp identity hostname     ## Important!
+!
+crypto ikev2 policy 1
+    encryption aes-256
+    integrity sha
+    group {{ dh_group }}
+    prf sha                         ## Important! Make sha1 as the only one PRF algrithm
+    lifetime seconds 86400
+crypto ikev2 enable outside
+!
+group-policy {{ group_policy }} internal
+group-policy {{ group_policy }} attributes
+    vpn-tunnel-protocol ikev2 
+!
+{%- comment %}
+
+    Tunnel group name must be same as peer ip address.
+    Otherwise ASA cannot find a valid tunnel group.
+
+{%- endcomment %}
+tunnel-group {{ tencent_vpngw_ip }} type ipsec-l2l
+tunnel-group {{ tencent_vpngw_ip }} general-attributes
+    default-group-policy {{ group_policy }}
+tunnel-group {{ tencent_vpngw_ip }} ipsec-attributes
+    ikev2 remote-authentication pre-shared-key {{ psk }}
+    ikev2 local-authentication pre-shared-key {{ psk }}
+!
+{%- if nat_exemption == True %}
+!
+object-group network LOCAL-NET
+network-object {{ local_network }} {{ local_netmask }}
+!
+object-group network REMOTE-NET
+network-object {{ remote_network }} {{ remote_netmask }}
+!
+nat (inside,outside) source static LOCAL-NET LOCAL-NET destination static REMOTE-NET REMOTE-NET no-proxy-arp route-lookup
+!
+{%- endif %}

@@ -1,0 +1,73 @@
+{%- comment %}
+
+    It is mandatory to use FQDN for peer identity and self identity for Tencent cloud,
+	so keyring configuration is necessary.
+
+{%- endcomment %}
+!
+crypto keyring {{ keyring_name }}  
+	pre-shared-key address {{ tencent_vpngw_ip }} key {{ psk }}
+!
+crypto isakmp policy 10
+	encryption aes
+	authentication pre-share
+	group {{ dh_group }}
+	hash sha 			## Default hashing algrithm is SHA1
+	lifetime 86400 		## Default lifetime for ISAKMP security association is 86400 seconds
+!
+crypto isakmp profile {{ ike_profile_name }}
+   	keyring {{ keyring_name }}
+   	{%- comment %}
+
+	   	Example:
+
+			self-identity fqdn csr.aws.amazon.com
+			match identity host vpngw.cloud.tencent.com
+
+	{%- endcomment %}
+	self-identity fqdn {{ local_fqdn }}
+	match identity host {{ remote_fqdn }}
+!
+crypto ipsec transform-set {{ tset_name }} esp-aes esp-sha-hmac 
+    mode tunnel
+!
+crypto map {{ cmap_name }} 10 ipsec-isakmp 
+	set peer {{ tencent_vpngw_ip }}
+	no set pfs 			## Perfect Forward Secrecy is disabled by default
+	set security-association lifetime seconds 3600 		## Default time-based key duration is 3600 seconds
+	set security-association lifetime kilobytes 1843200
+	set transform-set {{ tset_name }} 
+	match address INTERESTING
+!
+interface GigabitEthernet1
+	description VPNGW
+	ip address {{ wan_addr }} {{ wan_mask }}
+	negotiation auto
+	no mop enabled
+	no mop sysid
+	crypto map {{ cmap_name }}
+!
+interface GigabitEthernet2
+	ip address {{ lan_addr }} {{ lan_mask }}
+	negotiation auto
+	no mop enabled
+	no mop sysid
+!
+ip access-list extended INTERESTING
+	10 permit ip {{ local_network }} {{ local_network_wildmask }} {{ remote_network }} {{ remote_network_wildmask }}
+!
+{%- if nat_exemption == True %}
+!
+ip nat inside source route-map NO-NAT interface GigabitEthernet1 overload
+!
+ip access-list extended NO-NAT-ACL
+	10 deny   ip {{ local_network }} {{ local_network_wildmask }} {{ remote_network }} {{ remote_network_wildmask }}
+	20 permit ip {{ local_network }} {{ local_network_wildmask }} any
+!
+route-map NO-NAT permit 10 
+	match ip address NO-NAT-ACL
+!
+interface GigabitEthernet1
+	ip nat outside
+!
+{%- endif %}

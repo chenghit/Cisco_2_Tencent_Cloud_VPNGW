@@ -1,0 +1,73 @@
+crypto ikev2 proposal {{ ikev2_proposal }} 
+	encryption aes-cbc-256
+	integrity sha1 		## Tencent cloud only supports MD5 and SHA1
+	group {{ dh_group }} 	## Tencent cloud supports DH1/DH2/DH5/DH14/DH24
+!
+crypto ikev2 policy {{ ikev2_policy }} 
+	proposal {{ ikev2_proposal }}
+!
+crypto ikev2 keyring {{ keyring_name }}
+	peer {{ peer_name }}
+		address {{ tencent_vpngw_ip }}
+		pre-shared-key {{ psk }}
+!         
+crypto ikev2 profile {{ ikev2_profile }}
+   	{%- comment %}
+
+	   	Example:
+
+			self-identity fqdn csr.aws.amazon.com
+			match identity host vpngw.cloud.tencent.com
+
+	{%- endcomment %}
+	match identity remote fqdn {{ remote_fqdn }}
+	identity local fqdn {{ local_fqdn }}
+	authentication remote pre-share
+	authentication local pre-share
+	keyring local {{ keyring_name }}
+	lifetime 86400 		## Default lifetime for ISAKMP security association is 86400 seconds
+!
+crypto ipsec transform-set {{ tset_name }} esp-aes 256 esp-sha-hmac 
+	mode tunnel
+!
+crypto map {{ cmap_name }} 10 ipsec-isakmp 
+	set peer {{ tencent_vpngw_ip }}
+	no set pfs 			## Perfect Forward Secrecy is disabled by default
+	set transform-set {{ tset_name }} 
+	set ikev2-profile {{ ikev2_profile }}
+	set security-association lifetime seconds 3600 		## Default time-based key duration is 3600 seconds
+	set security-association lifetime kilobytes 1843200
+	match address INTERESTING
+!
+interface GigabitEthernet1
+	description VPNGW
+	ip address {{ wan_addr }} {{ wan_mask }}
+	negotiation auto
+	no mop enabled
+	no mop sysid
+	crypto map {{ cmap_name }}
+!
+interface GigabitEthernet2
+	ip address {{ lan_addr }} {{ lan_mask }}
+	negotiation auto
+	no mop enabled
+	no mop sysid
+!
+ip access-list extended INTERESTING
+	10 permit ip {{ local_network }} {{ local_network_wildmask }} {{ remote_network }} {{ remote_network_wildmask }}
+!
+{%- if nat_exemption == True %}
+!
+ip nat inside source route-map NO-NAT interface GigabitEthernet1 overload
+!
+ip access-list extended NO-NAT-ACL
+	10 deny   ip {{ local_network }} {{ local_network_wildmask }} {{ remote_network }} {{ remote_network_wildmask }}
+	20 permit ip {{ local_network }} {{ local_network_wildmask }} any
+!
+route-map NO-NAT permit 10 
+	match ip address NO-NAT-ACL
+!
+interface GigabitEthernet1
+	ip nat outside
+!
+{%- endif %}
