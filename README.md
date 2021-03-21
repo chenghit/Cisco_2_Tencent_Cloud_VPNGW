@@ -16,4 +16,20 @@ IPSec fragmentation must be set to `after-encryption` instead of `before-encrypt
 
 Besides, tunnel-group name must be same as peer ip address. Otherwise, ASA cannot find a valid tunnel group.
 
-The last thing, the pre-shared-key on ASA cannot contain special charactors. But it's okay on IOSXE.
+The pre-shared-key on ASA cannot contain special charactors. But it's okay on IOSXE.
+
+The last thing, after configure IKEv2 policy and choose an encryption method out of AES-128 on Cisco ASA, PRF (Pseudo-Random Function) will be enabled with MD5/SHA256/SHA384/SHA512 algrithm by default. But on Tencent Cloud VPN GW, there is not a knob to set RPF. Also, it seems like strongSwan has some problems in supporting PRF + SHA256. So you are recommended to replace `prf sha256` with `prf sha` manually.
+
+
+
+```
+crypto ikev2 policy 1
+    encryption aes-256
+    integrity sha
+    group {{ dh_group }}
+    prf sha                         
+    lifetime seconds 86400
+```
+
+
+
