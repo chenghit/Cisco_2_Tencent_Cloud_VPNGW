@@ -15,3 +15,5 @@ There are many things that need to be taken care of when connecting Cisco ASA to
 IPSec fragmentation must be set to `after-encryption` instead of `before-encryption` by default. Otherwise, Tencent VPN gateway will be failed to parse hash payload.
 
 Besides, tunnel-group name must be same as peer ip address. Otherwise, ASA cannot find a valid tunnel group.
+
+The last thing, the pre-shared-key on ASA cannot contain special charactors. But it's okay on IOSXE.
